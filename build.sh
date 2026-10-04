@@ -45,6 +45,7 @@ for ARG in "$@"; do
     case "${ARG}" in
         clean)   MODE="clean" ;;
         package) MODE="package" ;;
+        catalyst) MODE="catalyst" ;;
         static)  LINKAGE="static" ;;
         dynamic) LINKAGE="dynamic" ;;
         *) echo "Unknown argument: ${ARG}"; exit 1 ;;
@@ -247,6 +248,17 @@ s@\#if TARGET_OS_IPHONE\n    CFDictionarySetValue\(buffer_attributes, kCVPixelBu
         echo "ERROR: visionOS videotoolbox patch did not apply (upstream source changed?)"
         exit 1
     fi
+}
+
+patch_ffmpeg_catalyst() {
+    # Filmio: Mac Catalyst has TARGET_OS_IPHONE == 1 too, and kCVPixelBufferOpenGLESCompatibilityKey
+    # is unavailable there just as on visionOS. Same remedy as patch_ffmpeg_visionos: skip the GL
+    # attribute; consumers are Metal / AVFoundation, which the IOSurface backing covers.
+    local F="${FFMPEG_SRC}/libavcodec/videotoolbox.c"
+    grep -q "TARGET_OS_VISION || TARGET_OS_MACCATALYST" "${F}" && return
+    echo "→ Patching FFmpeg: skip the OpenGL ES buffer attribute on Mac Catalyst"
+    perl -0777 -pi -e 's@\#if TARGET_OS_VISION\n@\#if TARGET_OS_VISION || TARGET_OS_MACCATALYST\n@' "${F}"
+    grep -q "TARGET_OS_VISION || TARGET_OS_MACCATALYST" "${F}" || { echo "ERROR: catalyst videotoolbox patch did not apply"; exit 1; }
 }
 
 patch_ffmpeg_matroska_tts() {
@@ -883,7 +895,7 @@ fix_install_names() {
     local BIN="$1" FW="$2" PLATFORM="$3"
 
     local SUBPATH="${FW}.framework/${FW}"
-    [[ "${PLATFORM}" == "macos" ]] && SUBPATH="${FW}.framework/Versions/A/${FW}"
+    [[ "${PLATFORM}" == "macos" || "${PLATFORM}" == "maccatalyst" ]] && SUBPATH="${FW}.framework/Versions/A/${FW}"
     install_name_tool -id "@rpath/${SUBPATH}" "${BIN}"
 
     local PAIRS=(
@@ -901,7 +913,7 @@ fix_install_names() {
             TARGET_FW="${PAIR##*:}"
             if [[ "${BASE}" == ${NAME}.dylib || "${BASE}" == ${NAME}.*.dylib ]]; then
                 NEW="${TARGET_FW}.framework/${TARGET_FW}"
-                [[ "${PLATFORM}" == "macos" ]] && NEW="${TARGET_FW}.framework/Versions/A/${TARGET_FW}"
+                [[ "${PLATFORM}" == "macos" || "${PLATFORM}" == "maccatalyst" ]] && NEW="${TARGET_FW}.framework/Versions/A/${TARGET_FW}"
                 install_name_tool -change "${DEP}" "@rpath/${NEW}" "${BIN}"
             fi
         done
@@ -1075,6 +1087,7 @@ EOF
         xros)        MIN_OS="1.0";  SUPPORTED_PLATFORM="XROS" ;;
         xrsimulator) MIN_OS="1.0";  SUPPORTED_PLATFORM="XRSimulator" ;;
         macos)       MIN_OS="14.0"; SUPPORTED_PLATFORM="MacOSX" ;;
+        maccatalyst) MIN_OS="16.0"; SUPPORTED_PLATFORM="MacOSX" ;;
         *)           MIN_OS="26.0"; SUPPORTED_PLATFORM="iPhoneOS" ;;
     esac
 
@@ -1102,7 +1115,7 @@ EOF
     # validation: "contains Info.plist, expected
     # Versions/Current/Resources/Info.plist since the platform does not use
     # shallow bundles".
-    if [[ "${PLATFORM}" == "macos" ]]; then
+    if [[ "${PLATFORM}" == "macos" || "${PLATFORM}" == "maccatalyst" ]]; then
         local V="${FW_DIR}/Versions/A"
         mkdir -p "${V}/Resources"
         mv "${FW_DIR}/${FW}"      "${V}/${FW}"
@@ -1217,6 +1230,55 @@ echo "║  FFmpegBuild: FFmpeg + dav1d (AV1)  ║"
 echo "║  VideoToolbox HW + Metal ready      ║"
 echo "║  Linkage: ${LINKAGE}                     ║"
 echo "╚══════════════════════════════════════╝"
+
+# Filmio: Mac Catalyst slices only. Builds maccatalyst-arm64 / -x86_64 and merges them
+# into the existing xcframeworks in Sources/ (the other platforms are not rebuilt).
+make_catalyst_xcframeworks() {
+    local PAIRS=("libavcodec:AetherLibavcodec" "libavformat:AetherLibavformat" "libavutil:AetherLibavutil" "libswresample:AetherLibswresample" "libswscale:AetherLibswscale" "libavfilter:AetherLibavfilter" "dav1d:AetherLibdav1d" "zimg:AetherLibzimg" "zvbi:AetherLibzvbi")
+    for PAIR in "${PAIRS[@]}"; do
+        local LIB="${PAIR%%:*}" FW="${PAIR##*:}"
+        make_framework "$LIB" "$FW" "maccatalyst" maccatalyst-arm64 maccatalyst-x86_64
+        local XCF="${OUTPUT_DIR}/${FW}.xcframework" OLD="${BUILD_DIR}/old-xcf/${FW}.xcframework"
+        rm -rf "${OLD}"; mkdir -p "${BUILD_DIR}/old-xcf"; cp -R "${XCF}" "${OLD}"
+        local ARGS=() SLICE
+        for SLICE in "${OLD}"/*/; do
+            SLICE="${SLICE%/}"
+            [[ "${SLICE:t}" == *maccatalyst* ]] && continue
+            ARGS+=(-framework "${SLICE}/${FW}.framework")
+            [[ -d "${SLICE}/dSYMs/${FW}.framework.dSYM" ]] && ARGS+=(-debug-symbols "${SLICE}/dSYMs/${FW}.framework.dSYM")
+        done
+        ARGS+=(-framework "${BUILD_DIR}/frameworks/maccatalyst/${FW}.framework")
+        ARGS+=(-debug-symbols "${BUILD_DIR}/dsyms/maccatalyst/${FW}.framework.dSYM")
+        rm -rf "${XCF}"
+        xcodebuild -create-xcframework "${ARGS[@]}" -output "${XCF}" 2>&1 | tail -1
+        echo "  ✓ ${FW}.xcframework (+ maccatalyst)"
+    done
+}
+
+if [[ "${MODE}" == "catalyst" ]]; then
+    fetch_ffmpeg
+    patch_ffmpeg
+    patch_ffmpeg_pgssub
+    patch_ffmpeg_visionos
+    patch_ffmpeg_catalyst
+    patch_ffmpeg_matroska_tts
+    patch_ffmpeg_vc1_parser
+    patch_ffmpeg_dav1_tag
+    patch_ffmpeg_mpegts_mpeg1_probe
+    fetch_dav1d
+    fetch_zimg
+    fetch_zvbi
+    patch_zvbi
+    for K in arm64 x86_64; do
+        build_dav1d_one maccatalyst-${K} macosx ${K} ${K}-apple-ios16.0-macabi 16.0
+        build_zimg_one  maccatalyst-${K} macosx ${K} ${K}-apple-ios16.0-macabi 16.0
+        build_zvbi_one  maccatalyst-${K} macosx ${K} ${K}-apple-ios16.0-macabi 16.0
+        build_one       maccatalyst-${K} macosx ${K} ${K}-apple-ios16.0-macabi 16.0
+    done
+    make_catalyst_xcframeworks
+    echo "✓ Mac Catalyst slices built and merged"
+    exit 0
+fi
 
 fetch_ffmpeg
 patch_ffmpeg

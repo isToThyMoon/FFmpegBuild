@@ -1,3 +1,9 @@
+> **Filmio fork (`filmio` branch).** Upstream 3.6.0 plus a Mac Catalyst slice
+> (`ios-arm64_x86_64-maccatalyst`) in every xcframework. `./build.sh catalyst` builds only the
+> Catalyst slices (`arm64` / `x86_64-apple-ios16.0-macabi`) and merges them into the existing
+> xcframeworks; `patch_ffmpeg_catalyst` skips the OpenGL ES CVPixelBuffer attribute there, as
+> upstream already does for visionOS. Tags: `3.6.0-filmio.N`.
+
 <h1 align="center">FFmpegBuild</h1>
 
 <p align="center">
