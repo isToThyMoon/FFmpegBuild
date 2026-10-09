@@ -1,5 +1,5 @@
 import Testing
-import AetherLibavfilter
+import FilmioLibavfilter
 
 /// Proves the zscale + tonemap filters (and the graph endpoints) are
 /// actually compiled into the shipped libavfilter. `avfilter_get_by_name`
@@ -28,7 +28,7 @@ struct FilterAvailabilityTests {
 
     @Test("deinterlacers are available")
     func deinterlacersAvailable() {
-        // AetherEngine's software-decode path deinterlaces interlaced
+        // the consumer's software-decode path deinterlaces interlaced
         // MPEG-2 / VC-1 / MPEG-4 through bwdif (yadif fallback); if a
         // future build drops them the engine silently renders combing.
         #expect(avfilter_get_by_name("bwdif") != nil)

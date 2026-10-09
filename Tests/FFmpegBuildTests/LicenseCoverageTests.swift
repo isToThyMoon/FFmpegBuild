@@ -8,7 +8,7 @@ import Foundation
 ///
 /// The case that motivated this: the table named `ure.c`'s MIT terms but put
 /// the text nowhere, naming the source file instead. Adopters copy the folder,
-/// not a zvbi checkout, so that notice never travelled (AetherEngine#398).
+/// not a zvbi checkout, so that notice never travelled (downstream issue 398).
 struct LicenseCoverageTests {
 
     private static let repoRoot = URL(fileURLWithPath: #filePath)

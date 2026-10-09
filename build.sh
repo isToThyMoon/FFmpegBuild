@@ -28,6 +28,9 @@ ZVBI_REPO="https://github.com/zapping-vbi/zvbi.git"
 # harvested into dSYMs beforehand.
 DEBUG_CFLAG="-gline-tables-only"
 SCRIPT_DIR="${0:a:h}"
+# Parallelism of make / ninja. Defaults to every core; set BUILD_JOBS=6 to leave room for
+# other work on the machine (the full build runs for a long time).
+BUILD_JOBS="${BUILD_JOBS:-$(sysctl -n hw.ncpu)}"
 BUILD_DIR="${SCRIPT_DIR}/build"
 OUTPUT_DIR="${SCRIPT_DIR}/Sources"
 FFMPEG_SRC="${BUILD_DIR}/ffmpeg-src"
@@ -112,7 +115,7 @@ s#    ff_objc_release\(&encoder\);\n    ff_objc_release\(&buffer\);\n\}#    } //
 }
 
 patch_ffmpeg_pgssub() {
-    # AetherEngine #142, second shape (FFmpeg PR 23851). PGS carries no end time,
+    # downstream issue 142, second shape (FFmpeg PR 23851). PGS carries no end time,
     # a cue is closed by the start of its successor, so dropping a damaged display
     # set also removes the successor that would have closed the previous cue: the
     # predecessor overstays its authored end until the next intact set arrives.
@@ -130,9 +133,9 @@ patch_ffmpeg_pgssub() {
     # Continue.
     local F="${FFMPEG_SRC}/libavcodec/pgssubdec.c"
     grep -q "pgs-missing-palette" "${F}" && return
-    echo "→ Patching FFmpeg: close the predecessor cue on a missing pgssub palette (AetherEngine #142)"
+    echo "→ Patching FFmpeg: close the predecessor cue on a missing pgssub palette (downstream issue 142)"
     perl -0777 -pi -e '
-s#               ctx->presentation\.palette_id\);\n        avsubtitle_free\(sub\);\n        return AVERROR_INVALIDDATA;\n    \}#               ctx->presentation.palette_id);\n        /* pgs-missing-palette: dropping the set here would also drop the successor\n         * that closes the previous cue, so the predecessor overstays its authored\n         * end. Outside AV_EF_EXPLODE emit the empty subtitle instead: the pts is\n         * set, no rect is allocated yet, and this is the clearing form the\n         * object_count == 0 path above returns.\n         * See FFmpegBuild build.sh patch_ffmpeg_pgssub (AetherEngine issue 142,\n         * FFmpeg PR 23851). */\n        if (avctx->err_recognition \& AV_EF_EXPLODE) {\n            avsubtitle_free(sub);\n            return AVERROR_INVALIDDATA;\n        }\n        av_freep(\&sub->rects);\n        return 1;\n    }#;
+s#               ctx->presentation\.palette_id\);\n        avsubtitle_free\(sub\);\n        return AVERROR_INVALIDDATA;\n    \}#               ctx->presentation.palette_id);\n        /* pgs-missing-palette: dropping the set here would also drop the successor\n         * that closes the previous cue, so the predecessor overstays its authored\n         * end. Outside AV_EF_EXPLODE emit the empty subtitle instead: the pts is\n         * set, no rect is allocated yet, and this is the clearing form the\n         * object_count == 0 path above returns.\n         * See FFmpegBuild build.sh patch_ffmpeg_pgssub (downstream issue 142,\n         * FFmpeg PR 23851). */\n        if (avctx->err_recognition \& AV_EF_EXPLODE) {\n            avsubtitle_free(sub);\n            return AVERROR_INVALIDDATA;\n        }\n        av_freep(\&sub->rects);\n        return 1;\n    }#;
 ' "${F}"
     if ! grep -q "pgs-missing-palette" "${F}"; then
         echo "ERROR: pgssubdec missing-palette patch did not apply (upstream source changed?)"
@@ -141,7 +144,7 @@ s#               ctx->presentation\.palette_id\);\n        avsubtitle_free\(sub\
 }
 
 patch_ffmpeg_vc1_parser() {
-    # AetherEngine #490 (FFmpeg PR 24458). libavformat closes and reopens the parser on
+    # downstream issue 490 (FFmpeg PR 24458). libavformat closes and reopens the parser on
     # every reposition (ff_read_frame_flush), and vc1_parser.c never seeds its VC1Context
     # from avctx->extradata the way vc1_decode_init does. So after a seek the context has
     # profile 0 and max_coded_width/height 0 until an in-stream sequence header happens to
@@ -156,7 +159,7 @@ patch_ffmpeg_vc1_parser() {
     # duration, come out of the wrong reader after every seek.
     local F="${FFMPEG_SRC}/libavcodec/vc1_parser.c"
     grep -q "vc1_parse_extradata" "${F}" && return
-    echo "→ Patching FFmpeg: seed the VC-1 parse context from extradata (AetherEngine #490)"
+    echo "→ Patching FFmpeg: seed the VC-1 parse context from extradata (downstream issue 490)"
     local SEED
     SEED=$(cat <<'VC1SEEDEOF'
 /**
@@ -262,7 +265,7 @@ patch_ffmpeg_catalyst() {
 }
 
 patch_ffmpeg_matroska_tts() {
-    # AetherEngine #145, reworked after upstream review (FFmpeg PR 23852):
+    # downstream issue 145, reworked after upstream review (FFmpeg PR 23852):
     # RFC 9559 (11.1.3, 11.2, 5.1.3.5.3) puts Block/SimpleBlock relative
     # timestamps and BlockDuration in Track Ticks, so absolute time is
     # (cluster + rel x TTS) x TimestampScale, and upstream matroskadec
@@ -275,19 +278,19 @@ patch_ffmpeg_matroska_tts() {
     # upstream's own "< 0.01" guard so the condition is visible; timestamp
     # behavior stays RFC.
     local F="${FFMPEG_SRC}/libavformat/matroskadec.c"
-    grep -q "AetherEngine issue 145" "${F}" && return
-    echo "→ Patching FFmpeg: warn on matroska TrackTimestampScale != 1 (AetherEngine #145)"
+    grep -q "downstream issue 145" "${F}" && return
+    echo "→ Patching FFmpeg: warn on matroska TrackTimestampScale != 1 (downstream issue 145)"
     perl -0777 -pi -e '
-s#        if \(track->time_scale < 0\.01\) \{\n            av_log\(matroska->ctx, AV_LOG_WARNING,\n                   "Track TimestampScale too small %f, assuming 1\.0\.\\n",\n                   track->time_scale\);\n            track->time_scale = 1\.0;\n        \}#        if (track->time_scale < 0.01) {\n            av_log(matroska->ctx, AV_LOG_WARNING,\n                   "Track TimestampScale too small %f, assuming 1.0.\\n",\n                   track->time_scale);\n            track->time_scale = 1.0;\n        } else if (track->time_scale != 1.0) {\n            /* Applied per RFC 9559: block timestamps and BlockDuration are\n             * Track Ticks, scaled against the segment axis. The element is\n             * deprecated (maxver 3) and many readers ignore it, so a file\n             * carrying it may have been authored against such readers; surface\n             * it instead of staying silent. See FFmpegBuild build.sh\n             * patch_ffmpeg_matroska_tts (AetherEngine issue 145). */\n            av_log(matroska->ctx, AV_LOG_WARNING,\n                   "TrackTimestampScale %f applied per RFC 9559; many readers "\n                   "ignore this element and files may be authored against them.\\n",\n                   track->time_scale);\n        }#;
+s#        if \(track->time_scale < 0\.01\) \{\n            av_log\(matroska->ctx, AV_LOG_WARNING,\n                   "Track TimestampScale too small %f, assuming 1\.0\.\\n",\n                   track->time_scale\);\n            track->time_scale = 1\.0;\n        \}#        if (track->time_scale < 0.01) {\n            av_log(matroska->ctx, AV_LOG_WARNING,\n                   "Track TimestampScale too small %f, assuming 1.0.\\n",\n                   track->time_scale);\n            track->time_scale = 1.0;\n        } else if (track->time_scale != 1.0) {\n            /* Applied per RFC 9559: block timestamps and BlockDuration are\n             * Track Ticks, scaled against the segment axis. The element is\n             * deprecated (maxver 3) and many readers ignore it, so a file\n             * carrying it may have been authored against such readers; surface\n             * it instead of staying silent. See FFmpegBuild build.sh\n             * patch_ffmpeg_matroska_tts (downstream issue 145). */\n            av_log(matroska->ctx, AV_LOG_WARNING,\n                   "TrackTimestampScale %f applied per RFC 9559; many readers "\n                   "ignore this element and files may be authored against them.\\n",\n                   track->time_scale);\n        }#;
 ' "${F}"
-    if ! grep -q "AetherEngine issue 145" "${F}"; then
+    if ! grep -q "downstream issue 145" "${F}"; then
         echo "ERROR: matroska TrackTimestampScale patch did not apply (upstream source changed?)"
         exit 1
     fi
 }
 
 patch_ffmpeg_dav1_tag() {
-    # AetherEngine #547. MP4RA registers 'dav1' as the AV1 sample entry that signals
+    # downstream issue 547. MP4RA registers 'dav1' as the AV1 sample entry that signals
     # Dolby Vision, and Apple's HLS authoring spec requires it for Dolby Vision
     # Profile 10.0, the AV1 analogue of HEVC Profile 5: an IPT-PQ-c2 signal with no
     # compatible base layer, so 'av01' is not an alternative there. FFmpeg knows the
@@ -307,7 +310,7 @@ patch_ffmpeg_dav1_tag() {
     if grep -q "'d', 'a', 'v', '1'" "${T}" && grep -q "'d', 'a', 'v', '1'" "${M}"; then
         return
     fi
-    echo "→ Patching FFmpeg: accept the dav1 sample entry for AV1 Dolby Vision (AetherEngine #547)"
+    echo "→ Patching FFmpeg: accept the dav1 sample entry for AV1 Dolby Vision (downstream issue 547)"
     perl -0777 -pi -e '
 s#(\{ AV_CODEC_ID_AV1,  MKTAG\('"'"'a'"'"', '"'"'v'"'"', '"'"'0'"'"', '"'"'1'"'"'\) \}, /\* AV1 \*/\n)#$1    { AV_CODEC_ID_AV1,  MKTAG('"'"'d'"'"', '"'"'a'"'"', '"'"'v'"'"', '"'"'1'"'"') }, /* AV1-related Dolby Vision */\n#;
 ' "${T}"
@@ -477,7 +480,7 @@ CROSSEOF
         "${DAV1D_SRC}" \
         2>&1 | tail -5
 
-    ninja -j$(sysctl -n hw.ncpu) 2>&1 | tail -3
+    ninja -j${BUILD_JOBS} 2>&1 | tail -3
     ninja install 2>&1 | tail -3
 
     echo "✓ dav1d ${KEY} → ${INSTALL_DIR}"
@@ -519,7 +522,7 @@ build_zimg_one() {
         "${CONFIGURE_LINK_FLAGS[@]}" \
         2>&1 | tail -5
 
-    make -j$(sysctl -n hw.ncpu) 2>&1 | tail -3
+    make -j${BUILD_JOBS} 2>&1 | tail -3
     make install 2>&1 | tail -3
 
     echo "✓ zimg ${KEY} → ${INSTALL_DIR}"
@@ -567,7 +570,7 @@ build_zvbi_one() {
         2>&1 | tail -5
 
     # Only src/ holds the decoder library; test/ and examples/ are disabled above.
-    make -C src -j$(sysctl -n hw.ncpu) 2>&1 | tail -3
+    make -C src -j${BUILD_JOBS} 2>&1 | tail -3
     make -C src install 2>&1 | tail -3
     make install-pkgconfigDATA 2>&1 | tail -2
 
@@ -591,7 +594,18 @@ COMMON_FLAGS=(
     --enable-swscale --disable-encoders --disable-muxers
     --disable-bsfs --disable-network --disable-protocols
     --disable-d3d11va --disable-dxva2 --disable-vaapi --disable-vdpau
-    --disable-gray --disable-iconv --disable-bzlib
+    --disable-gray
+    # System libraries, all shipped by the Apple SDKs (libz, libbz2, libiconv), so no extra
+    # framework and no licence question: they are linked dynamically and are not part of this
+    # repository. --disable-autodetect above switches every one of them off, so each needs its
+    # own enable.
+    #   zlib   Matroska ContentCompression (zlib-compressed tracks, common for subtitles and
+    #          for header-stripped audio), compressed QuickTime headers (cmov), and the
+    #          decoders that inflate their payload.
+    #   bzlib  Matroska ContentCompression bz2 variant.
+    #   iconv  libavcodec's sub_charenc: text subtitle decoders convert a non-UTF-8 sidecar
+    #          (GBK, Big5, Shift-JIS, CP1252) to UTF-8 when the host sets the option.
+    --enable-zlib --enable-bzlib --enable-iconv
     --disable-linux-perf --disable-symver --disable-swscale-alpha
     --enable-avcodec --enable-avformat --enable-avutil --enable-swresample
     --enable-libzimg
@@ -601,10 +615,10 @@ COMMON_FLAGS=(
     --enable-filter=format --enable-filter=scale
     --enable-filter=zscale --enable-filter=tonemap
     --enable-filter=colorspace
-    # Deinterlacers for AetherEngine's software-decode path. Interlaced
-    # Deinterlacers for AetherEngine's software-decode path: interlaced
+    # Deinterlacers for the consumer's software-decode path. Interlaced
+    # Deinterlacers for the consumer's software-decode path: interlaced
     # MPEG-2 / VC-1 / MPEG-4 (DVD rips, SD broadcast) plus interlaced H.264
-    # (AetherEngine #107: AVPlayer does not deinterlace, so 1080i/576i H.264
+    # (downstream issue 107: AVPlayer does not deinterlace, so 1080i/576i H.264
     # routes software too). Without these it all renders with combing. bwdif
     # is the CPU primary (better quality), yadif the fallback.
     --enable-filter=bwdif --enable-filter=yadif
@@ -645,7 +659,7 @@ COMMON_FLAGS=(
     --enable-demuxer=ass --enable-demuxer=data
     # sup: raw PGS/SUP sidecar files (Jellyfin serves external PGS tracks as raw .sup streams;
     # the pgssub DECODER was always in, but without this demuxer avformat_open_input rejects the
-    # file with AVERROR_INVALIDDATA and external PGS subtitles never load. AetherEngine sidecar path.)
+    # file with AVERROR_INVALIDDATA and external PGS subtitles never load. The consumer's sidecar path.)
     --enable-demuxer=sup
     # webvtt: standalone .vtt sidecar files. The webvtt DECODER was always in (it serves WebVTT
     # tracks inside Matroska and HLS, where those demuxers supply the stream), but without this
@@ -670,13 +684,43 @@ COMMON_FLAGS=(
     # Every codec in that table whose demuxer is missing here can never be confirmed,
     # and the lenient mp3 probe (score 1 on noise) names the track instead: a DTS-HD
     # IPTV channel opened as mp3 and every packet failed with "Header missing"
-    # (AetherEngine #641). The decoders (dca, truehd, aac_latm) were always in.
+    # (downstream issue 641). The decoders (dca, truehd, aac_latm) were always in.
     --enable-demuxer=dts --enable-demuxer=truehd --enable-demuxer=loas
+    # Containers the first set left out (filmio.2). All are plain media demuxers.
+    #   mxf          broadcast / camera MXF: MPEG-2, H.264, DNxHD, ProRes with PCM.
+    #   aiff, caf    Apple audio containers (PCM, ALAC, IMA4, AAC).
+    #   ape, wv      Monkey's Audio and WavPack files; the demuxers hand over whole frames,
+    #                so neither needs a parser.
+    #   dsf, iff     DSD audio: DSF, and DSDIFF (.dff), which libavformat reads in iff.c.
+    #   rm           RealMedia / RMVB, still a common format for old Chinese-language films.
+    #   vvc          raw H.266 elementary streams (the mov / matroska / mpegts demuxers
+    #                already carry VVC without it).
+    --enable-demuxer=mxf --enable-demuxer=aiff --enable-demuxer=caf
+    --enable-demuxer=ape --enable-demuxer=wv --enable-demuxer=dsf
+    --enable-demuxer=iff --enable-demuxer=rm --enable-demuxer=vvc
     --disable-decoders
     --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=vp8
     --enable-decoder=vp9 --enable-decoder=av1 --enable-decoder=libdav1d
     --enable-decoder=mpeg2video --enable-decoder=mpeg4 --enable-decoder=vc1
     --enable-decoder=qtrle
+    # Video decoders added in filmio.2, all native libavcodec (LGPL), software only.
+    #   mpeg1video   VCD / old MPEG-1 files and MPEG-1 inside program streams; shares the
+    #                mpeg12 core that mpeg2video already pulls in.
+    #   prores       software fallback where VideoToolbox declines a ProRes variant
+    #                (some 4:4:4 / 12-bit variants); ~100 KB.
+    #   mjpeg        Motion-JPEG in AVI / MOV (phones, cameras, cheap capture cards).
+    #   h263 h263i h263p   3GP / early MOV / RealVideo-era H.263; shares the mpeg4 objects.
+    #   dnxhd        Avid DNxHD / DNxHR in MXF and MOV.
+    #   theora       Ogg Theora; the ogg demuxer is already in.
+    #   rv10..rv40   RealVideo, the video half of the rm demuxer above. Without them an
+    #                .rmvb opens with no picture: keep the set together.
+    #   vvc          H.266 / VVC, native decoder (no external library). The largest single
+    #                addition of this set, see the size table in the release notes.
+    --enable-decoder=mpeg1video --enable-decoder=prores --enable-decoder=mjpeg
+    --enable-decoder=h263 --enable-decoder=h263i --enable-decoder=h263p
+    --enable-decoder=dnxhd --enable-decoder=theora
+    --enable-decoder=rv10 --enable-decoder=rv20 --enable-decoder=rv30 --enable-decoder=rv40
+    --enable-decoder=vvc
     # Legacy Microsoft video, the MPEG-4-family tail that pre-2005 AVI rips and
     # WMV-era remuxes still carry (FFmpegBuild#3). All are native libavcodec
     # decoders under FFmpeg's LGPL-2.1-or-later terms: no external library, no GPL
@@ -684,7 +728,7 @@ COMMON_FLAGS=(
     # (MS-MPEG4 v3 / "DivX 3.11", the reported case) is in, its siblings cost their
     # decoder structs plus wmv2dsp; wmv3 (WMV9) selects the already-enabled
     # vc1_decoder and adds little beyond its own registration. Without them
-    # avcodec_find_decoder returns nil and AetherEngine's software path fails the
+    # avcodec_find_decoder returns nil and the consumer's software path fails the
     # load with unsupportedCodec, because since FFmpegBuild#1 the routing default is
     # software for everything the native path does not carry. The avi demuxer above
     # is already enabled, so the AVI case is complete with the decoder alone.
@@ -697,14 +741,12 @@ COMMON_FLAGS=(
     # h263 / mpeg4 objects already compiled in; vp6 / vp6a / vp6f are the On2 family
     # Flash 8 brought and pay for the vp56 core once. Note the registered name: the
     # FLV1 decoder answers to `flv`, which is also what configure wants here, so a
-    # consumer asking for `flv1` by name finds nothing (AetherEngine dispatches by
+    # consumer asking for `flv1` by name finds nothing (the consumer dispatches by
     # id and does not care).
     #
-    # Flash Screen Video (flashsv / flashsv2) is deliberately out: it needs zlib,
-    # which --disable-autodetect above switches off, so the flag would be dropped
-    # without a word, exactly like the dash demuxer. Screen recordings are also not
-    # what a film library holds. Enabling it means --enable-zlib and counting the
-    # generated decoder list afterwards, not adding a flag.
+    # Flash Screen Video (flashsv / flashsv2) stays out: screen recordings are not
+    # what a film library holds. It needs zlib, which is on since filmio.2
+    # (--enable-zlib above), so adding the decoders is now a plain flag.
     --enable-decoder=flv --enable-decoder=vp6 --enable-decoder=vp6a --enable-decoder=vp6f
     # Windows Media audio, the whole family, which is what makes the native .wmv /
     # .asf case complete: demuxer above, video decoders on the line above this one,
@@ -715,7 +757,7 @@ COMMON_FLAGS=(
     #
     # All five, not the two a .wmv usually carries, because this chain is
     # all-or-nothing by construction. A decoder left out here is a file that plays
-    # SILENTLY: AetherEngine's audio bridge asks libavcodec for a decoder by id, that
+    # SILENTLY: the consumer's audio bridge asks libavcodec for a decoder by id, that
     # lookup returns nothing, and the session falls to video-only, which reads as a
     # playback bug where an honest unsupported-format error would not. Measured
     # 2026-09-10 with a codec this build omits: `AudioBridge: no FFmpeg decoder for
@@ -726,7 +768,7 @@ COMMON_FLAGS=(
     # Standard, wmapro is WMA 9/10 Pro and the usual audio of anything post-2003,
     # wmalossless and wmavoice are rare in film content and cost tens of KB between
     # them, which is less than one silent-audio report costs. WMA is not fMP4-legal,
-    # so AetherEngine's AudioBridge decodes and re-encodes it, same as MP2 and
+    # so the consumer's AudioBridge decodes and re-encodes it, same as MP2 and
     # Blu-ray LPCM below. DecoderAvailabilityTests refuses a half set from here on.
     --enable-decoder=wmav1 --enable-decoder=wmav2 --enable-decoder=wmapro
     --enable-decoder=wmalossless --enable-decoder=wmavoice
@@ -746,12 +788,36 @@ COMMON_FLAGS=(
     --enable-decoder=pcm_s16be --enable-decoder=pcm_u8
     --enable-decoder=pcm_alaw --enable-decoder=pcm_mulaw
     # Blu-ray LPCM (PCM_BLURAY): M2TS audio tracks that ship raw LPCM. Not
-    # legal in fMP4, so AetherEngine's AudioBridge decodes to PCM and
+    # legal in fMP4, so the consumer's AudioBridge decodes to PCM and
     # re-encodes; without the decoder those tracks are silent. Prep for
     # Blu-ray ISO support (Phase 2); harmless for everything else.
     --enable-decoder=pcm_bluray
+    # pcm_dvd: DVD-Video LPCM (16 / 20 / 24 bit big-endian, packed), the audio track of
+    # many VOB / program-stream rips. The engine parses DVD itself and hands the
+    # bridge the codec id, so without the decoder that track is silent.
+    --enable-decoder=pcm_dvd
+    # The remaining common PCM shapes: signed 8, big-endian 24, 32-bit integer both
+    # ways, 32 / 64-bit float (wav, aiff, caf, mov, mxf). The 16/24-bit little-endian and
+    # 32-bit float little-endian line, unsigned 8, A-law and mu-law are declared above.
+    --enable-decoder=pcm_s8 --enable-decoder=pcm_s24be
+    --enable-decoder=pcm_s32le --enable-decoder=pcm_s32be
+    --enable-decoder=pcm_f32be --enable-decoder=pcm_f64le --enable-decoder=pcm_f64be
+    # IMA / MS ADPCM, what wav, avi, aiff and caf carry when they are not PCM. A few KB each.
+    --enable-decoder=adpcm_ima_qt --enable-decoder=adpcm_ima_wav --enable-decoder=adpcm_ms
+    # Lossless audio files: Monkey's Audio and WavPack. Neither is legal in fMP4, so the
+    # audio bridge decodes and re-encodes, same as the rest of this family.
+    --enable-decoder=ape --enable-decoder=wavpack
+    # DSD (DSF / DSDIFF): the decoders turn 1-bit DSD into 352.8 kHz-class float PCM for
+    # the bridge; all four bit orders / layouts the demuxers produce.
+    --enable-decoder=dsd_lsbf --enable-decoder=dsd_msbf
+    --enable-decoder=dsd_lsbf_planar --enable-decoder=dsd_msbf_planar
+    # RealAudio, the audio half of the rm demuxer: cook (RealAudio G2/8), sipr, 14.4 and
+    # 28.8. Same all-or-nothing reasoning as the WMA family: a missing decoder is a silent
+    # file, not an honest error.
+    --enable-decoder=cook --enable-decoder=sipr
+    --enable-decoder=ra_144 --enable-decoder=ra_288
     # MP2 (MPEG-1 Layer II) decoder for DVD-remux audio tracks that
-    # still carry MP2. Not legal in fMP4 so AetherEngine's AudioBridge
+    # still carry MP2. Not legal in fMP4 so the consumer's AudioBridge
     # decodes to PCM and re-encodes as FLAC. ~5 KB binary cost.
     --enable-decoder=mp2
     --enable-decoder=ass --enable-decoder=srt --enable-decoder=subrip
@@ -769,7 +835,7 @@ COMMON_FLAGS=(
     # decoder the core (0x7FFE8001) and the EXSS (0x64582025) as SEPARATE packets,
     # so a DTS-HD MA EXSS arrives with no core and the decoder rejects every frame
     # with "Residual encoded channels are present without core" (silent audio on
-    # Blu-ray M2TS; AetherEngine #64). Matroska is unaffected (its blocks are
+    # Blu-ray M2TS; downstream issue 64). Matroska is unaffected (its blocks are
     # already whole frames), which is why only the .m2ts path was silent.
     --enable-parser=dca
     # Same framing-completeness class as dca, for the other enabled decoders whose
@@ -781,19 +847,22 @@ COMMON_FLAGS=(
     #           Defensive: matches a stock FFmpeg build so live-TV / DVD subtitle
     #           framing is correct rather than relying on PES-aligned delivery.
     --enable-parser=mlp --enable-parser=vc1
+    # filmio.2: framing for the new video codecs when they arrive without container framing
+    # (raw streams, MPEG-TS / PS payloads).
+    --enable-parser=mjpeg --enable-parser=h263 --enable-parser=vvc
     --enable-parser=dvbsub --enable-parser=dvdsub
     --enable-bsf=aac_adtstoasc --enable-bsf=h264_mp4toannexb
     --enable-bsf=hevc_mp4toannexb --enable-bsf=extract_extradata
     # dca_core extracts the mandatory DTS core substream from a DTS-HD
-    # (MA / HRA) packet at the bitstream level. AetherEngine's AudioBridge
+    # (MA / HRA) packet at the bitstream level. the consumer's AudioBridge
     # runs DTS through it before decode so the lossless XLL extension (which
     # residual-codes channels and can fail to reconstruct standalone) is
     # dropped up front; the bridge re-encodes lossy anyway. Yields clean
-    # full-rate 5.1/7.1 core PCM on every frame (AetherEngine #64).
+    # full-rate 5.1/7.1 core PCM on every frame (downstream issue 64).
     --enable-bsf=dca_core
     # MP4 / mov muxers underlie the per-fragment fmp4 segment output;
     # the hls muxer drives the segmentation + per-segment styp emission
-    # + playlist for AetherEngine's HLSVideoEngine. We override
+    # + playlist for the consumer's HLSVideoEngine. We override
     # `s->io_open` / `s->io_close2` so segment writes land in Swift
     # memory rather than on disk, but the muxer's logic itself is
     # libavformat's hlsenc.c verbatim, byte-identical to
@@ -881,7 +950,7 @@ build_one() {
         "${COMMON_FLAGS[@]}" \
         2>&1 | tail -5
 
-    make -j$(sysctl -n hw.ncpu) 2>&1 | tail -3
+    make -j${BUILD_JOBS} 2>&1 | tail -3
     make install 2>&1 | tail -3
 
     echo "✓ FFmpeg ${KEY} → ${INSTALL_DIR}"
@@ -899,9 +968,9 @@ fix_install_names() {
     install_name_tool -id "@rpath/${SUBPATH}" "${BIN}"
 
     local PAIRS=(
-        "libavcodec:AetherLibavcodec" "libavformat:AetherLibavformat" "libavutil:AetherLibavutil"
-        "libswresample:AetherLibswresample" "libswscale:AetherLibswscale" "libavfilter:AetherLibavfilter"
-        "libdav1d:AetherLibdav1d" "libzimg:AetherLibzimg" "libzvbi:AetherLibzvbi"
+        "libavcodec:FilmioLibavcodec" "libavformat:FilmioLibavformat" "libavutil:FilmioLibavutil"
+        "libswresample:FilmioLibswresample" "libswscale:FilmioLibswscale" "libavfilter:FilmioLibavfilter"
+        "libdav1d:FilmioLibdav1d" "libzimg:FilmioLibzimg" "libzvbi:FilmioLibzvbi"
     )
     local DEPS
     DEPS=(${(f)"$(otool -L "${BIN}" | awk 'NR>1 {print $1}')"})
@@ -973,7 +1042,7 @@ make_dsym() {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleDevelopmentRegion</key><string>English</string>
-<key>CFBundleIdentifier</key><string>com.apple.xcode.dsym.com.aetherengine.${FW}</string>
+<key>CFBundleIdentifier</key><string>com.apple.xcode.dsym.com.filmio.${FW}</string>
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 <key>CFBundlePackageType</key><string>dSYM</string>
 <key>CFBundleSignature</key><string>????</string>
@@ -1003,7 +1072,7 @@ make_framework() {
 
     if [[ "${LIB}" == "zimg" ]]; then
         # Ship only the C API header; zimg++.hpp would put C++ into the
-        # framework module. No Swift consumer imports AetherLibzimg directly
+        # framework module. No Swift consumer imports FilmioLibzimg directly
         # (it is a link-only dependency of libavfilter).
         cp "${HEADER_SRC}/zimg.h" "${FW_DIR}/Headers/"
     elif [[ "${LIB}" == "zvbi" ]]; then
@@ -1031,7 +1100,7 @@ make_framework() {
               "${FW_DIR}/Headers/hwcontext_vulkan.h"
     fi
 
-    # The frameworks ship under an Aether prefix (see the PAIRS arrays) so this
+    # The frameworks ship under a Filmio prefix (see the PAIRS arrays) so this
     # build can sit in one app next to another FFmpeg. Clang resolves a header's
     # `#include "libavutil/frame.h"` as a framework include, case-insensitively,
     # which is how these headers found their siblings while the frameworks were
@@ -1041,7 +1110,7 @@ make_framework() {
     if [[ "${LIB}" == lib* ]]; then
         local SIBLING
         for SIBLING in libavcodec libavformat libavutil libswresample libswscale libavfilter; do
-            local UPPER="Aether${(C)SIBLING[1]}${SIBLING:1}"
+            local UPPER="Filmio${(C)SIBLING[1]}${SIBLING:1}"
             LC_ALL=C sed -i '' -E "s|(#include[[:space:]]*\")${SIBLING}/|\\1${UPPER}/|g" \
                 "${FW_DIR}/Headers/"*.h
         done
@@ -1096,7 +1165,7 @@ EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>${FW}</string>
-<key>CFBundleIdentifier</key><string>com.aetherengine.${FW}</string>
+<key>CFBundleIdentifier</key><string>com.filmio.${FW}</string>
 <key>CFBundleName</key><string>${FW}</string>
 <key>CFBundleVersion</key><string>1.0</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>
@@ -1140,7 +1209,7 @@ make_xcframeworks() {
     echo ""
     echo "━━━ Creating XCFrameworks ━━━"
 
-    local PAIRS=("libavcodec:AetherLibavcodec" "libavformat:AetherLibavformat" "libavutil:AetherLibavutil" "libswresample:AetherLibswresample" "libswscale:AetherLibswscale" "libavfilter:AetherLibavfilter" "dav1d:AetherLibdav1d" "zimg:AetherLibzimg" "zvbi:AetherLibzvbi")
+    local PAIRS=("libavcodec:FilmioLibavcodec" "libavformat:FilmioLibavformat" "libavutil:FilmioLibavutil" "libswresample:FilmioLibswresample" "libswscale:FilmioLibswscale" "libavfilter:FilmioLibavfilter" "dav1d:FilmioLibdav1d" "zimg:FilmioLibzimg" "zvbi:FilmioLibzvbi")
 
     for PAIR in "${PAIRS[@]}"; do
         local LIB="${PAIR%%:*}"
@@ -1201,7 +1270,7 @@ if [[ "${MODE}" == "package" ]]; then
 fi
 
 patch_ffmpeg_mpegts_mpeg1_probe() {
-    # AetherEngine #641. mpegts_set_stream_info() takes most PMT stream types at their
+    # downstream issue 641. mpegts_set_stream_info() takes most PMT stream types at their
     # word, but asks for a content probe on two of them (request_probe = 50): 0x04
     # (MPEG-2 audio) and 0x0f (AAC), because muxers are known to mislabel those. 0x03
     # (MPEG-1 audio) is not on the list, so a PID that a restreamer labels 0x03 while
@@ -1215,7 +1284,7 @@ patch_ffmpeg_mpegts_mpeg1_probe() {
     if grep -q "pes->stream_type == STREAM_TYPE_AUDIO_MPEG1 ||" "${F}"; then
         return
     fi
-    echo "→ Patching FFmpeg: probe the content of a PID labelled MPEG-1 audio (AetherEngine #641)"
+    echo "→ Patching FFmpeg: probe the content of a PID labelled MPEG-1 audio (downstream issue 641)"
     perl -0777 -pi -e '
 s!    if \(pes->stream_type == STREAM_TYPE_AUDIO_MPEG2 \|\| pes->stream_type == STREAM_TYPE_AUDIO_AAC\)\n!    if (pes->stream_type == STREAM_TYPE_AUDIO_MPEG1 ||\n        pes->stream_type == STREAM_TYPE_AUDIO_MPEG2 ||\n        pes->stream_type == STREAM_TYPE_AUDIO_AAC)\n!;
 ' "${F}"
@@ -1234,7 +1303,7 @@ echo "╚═══════════════════════�
 # Filmio: Mac Catalyst slices only. Builds maccatalyst-arm64 / -x86_64 and merges them
 # into the existing xcframeworks in Sources/ (the other platforms are not rebuilt).
 make_catalyst_xcframeworks() {
-    local PAIRS=("libavcodec:AetherLibavcodec" "libavformat:AetherLibavformat" "libavutil:AetherLibavutil" "libswresample:AetherLibswresample" "libswscale:AetherLibswscale" "libavfilter:AetherLibavfilter" "dav1d:AetherLibdav1d" "zimg:AetherLibzimg" "zvbi:AetherLibzvbi")
+    local PAIRS=("libavcodec:FilmioLibavcodec" "libavformat:FilmioLibavformat" "libavutil:FilmioLibavutil" "libswresample:FilmioLibswresample" "libswscale:FilmioLibswscale" "libavfilter:FilmioLibavfilter" "dav1d:FilmioLibdav1d" "zimg:FilmioLibzimg" "zvbi:FilmioLibzvbi")
     for PAIR in "${PAIRS[@]}"; do
         local LIB="${PAIR%%:*}" FW="${PAIR##*:}"
         make_framework "$LIB" "$FW" "maccatalyst" maccatalyst-arm64 maccatalyst-x86_64

@@ -1,13 +1,13 @@
 import Testing
 import Foundation
-import AetherLibavcodec
-import AetherLibavformat
+import FilmioLibavcodec
+import FilmioLibavformat
 
 /// Proves the decoder and demuxer allowlists in `build.sh` describe what the
 /// shipped binaries actually carry.
 ///
 /// `--disable-decoders` plus an explicit allowlist is this package's entire codec
-/// policy: a name that is not on the list is not in the binary, and AetherEngine's
+/// policy: a name that is not on the list is not in the binary, and the consumer's
 /// software path then fails the load with `unsupportedCodec` (FFmpegBuild#1, #3).
 /// Two ways that policy goes silently wrong, neither of which shows up in a build
 /// log:
@@ -42,6 +42,9 @@ struct DecoderAvailabilityTests {
         "movtext": "mov_text",
         "libzvbi_teletext": "libzvbi_teletextdec",
         "mpegps": "mpeg",
+        // RealAudio 1.0 / 2.0 (14.4 and 28.8) register under the codec's own name, not the container's.
+        "ra_144": "real_144",
+        "ra_288": "real_288",
     ]
 
     private static func enabled(_ component: String) -> [String] {
@@ -100,7 +103,7 @@ struct DecoderAvailabilityTests {
     ///
     /// Such a file needs three things at once: the asf demuxer to open it, a video
     /// decoder, and a decoder for whichever WMA flavour its audio track carries. With
-    /// the demuxer but without that last one, AetherEngine's `AudioCodecCompat` maps
+    /// the demuxer but without that last one, the consumer's `AudioCodecCompat` maps
     /// the unrecognised id to `.unsupported` and the session drops to video-only, so
     /// the file plays silently, which reads as a playback bug where an honest
     /// `unsupportedCodec` would not. Every name missing below is one such file, which
@@ -132,7 +135,7 @@ struct DecoderAvailabilityTests {
     /// since the first build, so a Flash file from after 2008 (H.264 + AAC) always played and only
     /// the legacy tail was absent. Both halves of that tail are asserted here, video and audio,
     /// because they fail differently and only one of the two failures is honest: without a video
-    /// decoder the load ends in `unsupportedCodec`, without an audio decoder AetherEngine maps the
+    /// decoder the load ends in `unsupportedCodec`, without an audio decoder the consumer maps the
     /// id to `.unsupported` and plays the file silently.
     ///
     /// Flash Screen Video is deliberately not in this list. It needs zlib, which
@@ -155,6 +158,34 @@ struct DecoderAvailabilityTests {
                 avcodec_find_decoder_by_name(name) != nil,
                 "\(name) missing: files carrying it would play with silent audio"
             )
+        }
+    }
+
+    @Test("the system libraries build.sh enables are linked, and nothing GPL or non-free is")
+    func systemLibrariesAreLinkedAndTheBuildStaysLGPL() {
+        let configuration = String(cString: avcodec_configuration())
+        // zlib: Matroska ContentCompression and compressed QuickTime headers. bzlib: the bz2 variant of the same.
+        // iconv: libavcodec's sub_charenc option for non-UTF-8 text subtitles.
+        for flag in ["--enable-zlib", "--enable-bzlib", "--enable-iconv"] {
+            #expect(configuration.contains(flag), "\(flag) is missing from the shipped libavcodec's configuration")
+        }
+        for flag in ["--enable-gpl", "--enable-nonfree", "--enable-version3"] {
+            #expect(!configuration.contains(flag), "\(flag) must not be in an LGPL-2.1 build")
+        }
+        #expect(String(cString: avcodec_license()).hasPrefix("LGPL version 2.1"))
+    }
+
+    @Test("the decoders and containers added in filmio.2 resolve by the names a consumer asks for")
+    func filmio2AdditionsResolve() {
+        for name in ["mpeg1video", "prores", "mjpeg", "vvc", "h263", "h263p", "dnxhd", "theora",
+                     "rv10", "rv20", "rv30", "rv40",
+                     "pcm_dvd", "pcm_bluray", "pcm_s24be", "pcm_s32le", "pcm_f64le", "ape", "wavpack",
+                     "dsd_lsbf", "dsd_msbf", "dsd_lsbf_planar", "dsd_msbf_planar",
+                     "cook", "sipr", "real_144", "real_288", "adpcm_ima_wav", "adpcm_ms", "adpcm_ima_qt"] {
+            #expect(avcodec_find_decoder_by_name(name) != nil, "\(name) missing")
+        }
+        for name in ["mxf", "aiff", "caf", "ape", "wv", "dsf", "iff", "rm", "vvc"] {
+            #expect(av_find_input_format(name) != nil, "\(name) demuxer missing")
         }
     }
 }

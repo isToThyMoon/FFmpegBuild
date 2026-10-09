@@ -1,5 +1,5 @@
 import Testing
-import AetherLibavcodec
+import FilmioLibavcodec
 
 /// Proves the `pgs-missing-palette` patch (build.sh `patch_ffmpeg_pgssub`) is in the
 /// shipped libavcodec and behaves as intended.
@@ -7,11 +7,11 @@ import AetherLibavcodec
 /// PGS carries no end time, a cue is closed by the start of its successor. Stock
 /// pgssubdec drops a display set whose referenced palette is not cached, so the
 /// successor that would have closed the previous cue disappears with it and the
-/// predecessor overstays its authored end (AetherEngine issue 142). The patch returns
+/// predecessor overstays its authored end (downstream issue 142). The patch returns
 /// the empty subtitle instead, outside `AV_EF_EXPLODE`.
 ///
 /// The sets below are synthetic and driven straight through
-/// `avcodec_decode_subtitle2`, the same entry point AetherEngine's decoders use.
+/// `avcodec_decode_subtitle2`, the same entry point the consumer's decoders use.
 struct PGSMissingPaletteTests {
 
     // MARK: - Segment builders (layouts per pgssubdec.c parsers)

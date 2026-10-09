@@ -1,5 +1,5 @@
 import Testing
-import AetherLibavcodec
+import FilmioLibavcodec
 
 /// Proves the VC-1 parse context seeding (build.sh `patch_ffmpeg_vc1_parser`) is in the
 /// shipped libavcodec and behaves as intended.
@@ -12,7 +12,7 @@ import AetherLibavcodec
 /// `coded_size_flag` is then the top bit of `hrd_full[0]`, the leaky bucket fullness at
 /// that entry point, so a bucket below half falls back to a zero picture size
 /// ("Picture size 0x0 is invalid") and one above half takes a coded size out of the
-/// following payload (AetherEngine issue 490, FFmpeg PR 24458).
+/// following payload (downstream issue 490, FFmpeg PR 24458).
 ///
 /// The BDUs below are synthetic and driven straight through `av_parser_parse2`, the same
 /// entry point libavformat uses. The decoder is deliberately not opened: it seeds itself

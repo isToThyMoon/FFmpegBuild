@@ -2,7 +2,7 @@
 
 import PackageDescription
 
-// The frameworks ship under an `Aether` prefix. SwiftPM target names and
+// The frameworks ship under a `Filmio` prefix. SwiftPM target names and
 // product names are unique across the whole dependency graph, and every other
 // FFmpeg packaged for Apple platforms (FFmpegKit and its forks, MobileVLCKit,
 // the mpv builds) declares targets named Libavcodec, Libavformat and friends.
@@ -20,36 +20,36 @@ let package = Package(
     ],
     products: [
         .library(
-            name: "AetherFFmpegBuild",
-            targets: ["AetherFFmpegBuild"]
+            name: "FilmioFFmpeg",
+            targets: ["FilmioFFmpeg"]
         ),
         // Individual libraries for consumers that want fine-grained control
-        .library(name: "AetherLibavcodec", targets: ["AetherLibavcodec"]),
-        .library(name: "AetherLibavformat", targets: ["AetherLibavformat"]),
-        .library(name: "AetherLibavutil", targets: ["AetherLibavutil"]),
-        .library(name: "AetherLibswresample", targets: ["AetherLibswresample"]),
-        .library(name: "AetherLibswscale", targets: ["AetherLibswscale"]),
-        .library(name: "AetherLibdav1d", targets: ["AetherLibdav1d"]),
-        .library(name: "AetherLibavfilter", targets: ["AetherLibavfilter"]),
-        .library(name: "AetherLibzimg", targets: ["AetherLibzimg"]),
-        .library(name: "AetherLibzvbi", targets: ["AetherLibzvbi"]),
+        .library(name: "FilmioLibavcodec", targets: ["FilmioLibavcodec"]),
+        .library(name: "FilmioLibavformat", targets: ["FilmioLibavformat"]),
+        .library(name: "FilmioLibavutil", targets: ["FilmioLibavutil"]),
+        .library(name: "FilmioLibswresample", targets: ["FilmioLibswresample"]),
+        .library(name: "FilmioLibswscale", targets: ["FilmioLibswscale"]),
+        .library(name: "FilmioLibdav1d", targets: ["FilmioLibdav1d"]),
+        .library(name: "FilmioLibavfilter", targets: ["FilmioLibavfilter"]),
+        .library(name: "FilmioLibzimg", targets: ["FilmioLibzimg"]),
+        .library(name: "FilmioLibzvbi", targets: ["FilmioLibzvbi"]),
     ],
     targets: [
         // Umbrella target that links all FFmpeg libraries + dav1d + system frameworks
         .target(
-            name: "AetherFFmpegBuild",
+            name: "FilmioFFmpeg",
             dependencies: [
-                "AetherLibavcodec",
-                "AetherLibavformat",
-                "AetherLibavutil",
-                "AetherLibswresample",
-                "AetherLibswscale",
-                "AetherLibavfilter",
-                "AetherLibdav1d",
-                "AetherLibzimg",
-                "AetherLibzvbi",
+                "FilmioLibavcodec",
+                "FilmioLibavformat",
+                "FilmioLibavutil",
+                "FilmioLibswresample",
+                "FilmioLibswscale",
+                "FilmioLibavfilter",
+                "FilmioLibdav1d",
+                "FilmioLibzimg",
+                "FilmioLibzvbi",
             ],
-            path: "Sources/AetherFFmpegBuild",
+            path: "Sources/FilmioFFmpeg",
             linkerSettings: [
                 .linkedFramework("AudioToolbox"),
                 .linkedFramework("CoreMedia"),
@@ -62,18 +62,18 @@ let package = Package(
             ]
         ),
         // Prebuilt xcframeworks (created by build.sh)
-        .binaryTarget(name: "AetherLibavcodec", path: "Sources/AetherLibavcodec.xcframework"),
-        .binaryTarget(name: "AetherLibavformat", path: "Sources/AetherLibavformat.xcframework"),
-        .binaryTarget(name: "AetherLibavutil", path: "Sources/AetherLibavutil.xcframework"),
-        .binaryTarget(name: "AetherLibswresample", path: "Sources/AetherLibswresample.xcframework"),
-        .binaryTarget(name: "AetherLibswscale", path: "Sources/AetherLibswscale.xcframework"),
-        .binaryTarget(name: "AetherLibdav1d", path: "Sources/AetherLibdav1d.xcframework"),
-        .binaryTarget(name: "AetherLibavfilter", path: "Sources/AetherLibavfilter.xcframework"),
-        .binaryTarget(name: "AetherLibzimg", path: "Sources/AetherLibzimg.xcframework"),
-        .binaryTarget(name: "AetherLibzvbi", path: "Sources/AetherLibzvbi.xcframework"),
+        .binaryTarget(name: "FilmioLibavcodec", path: "Sources/FilmioLibavcodec.xcframework"),
+        .binaryTarget(name: "FilmioLibavformat", path: "Sources/FilmioLibavformat.xcframework"),
+        .binaryTarget(name: "FilmioLibavutil", path: "Sources/FilmioLibavutil.xcframework"),
+        .binaryTarget(name: "FilmioLibswresample", path: "Sources/FilmioLibswresample.xcframework"),
+        .binaryTarget(name: "FilmioLibswscale", path: "Sources/FilmioLibswscale.xcframework"),
+        .binaryTarget(name: "FilmioLibdav1d", path: "Sources/FilmioLibdav1d.xcframework"),
+        .binaryTarget(name: "FilmioLibavfilter", path: "Sources/FilmioLibavfilter.xcframework"),
+        .binaryTarget(name: "FilmioLibzimg", path: "Sources/FilmioLibzimg.xcframework"),
+        .binaryTarget(name: "FilmioLibzvbi", path: "Sources/FilmioLibzvbi.xcframework"),
         .testTarget(
             name: "FFmpegBuildTests",
-            dependencies: ["AetherFFmpegBuild", "AetherLibavfilter", "AetherLibavutil"],
+            dependencies: ["FilmioFFmpeg", "FilmioLibavfilter", "FilmioLibavutil"],
             path: "Tests/FFmpegBuildTests"
         ),
     ]

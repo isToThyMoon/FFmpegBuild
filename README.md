@@ -3,6 +3,16 @@
 > Catalyst slices (`arm64` / `x86_64-apple-ios16.0-macabi`) and merges them into the existing
 > xcframeworks; `patch_ffmpeg_catalyst` skips the OpenGL ES CVPixelBuffer attribute there, as
 > upstream already does for visionOS. Tags: `3.6.0-filmio.N`.
+>
+> **`3.6.0-filmio.2`** opens the Apple SDK's system zlib, bzip2 and libiconv (`--enable-zlib --enable-bzlib --enable-iconv`:
+> zlib/bz2-compressed Matroska tracks and compressed QuickTime headers, and libavcodec's `sub_charenc` conversion of GBK / Big5 /
+> Shift-JIS text subtitles) and adds LGPL components: video decoders `vvc` (+ parser, raw demuxer), `mjpeg`, `dnxhd`, `theora`
+> (`vp3`), `h263p` / `h263i`, `rv10`-`rv40`; audio decoders `pcm_dvd`, `pcm_s8`, `pcm_s24be`, `pcm_s32le/be`, `pcm_f32be`,
+> `pcm_f64le/be`, `adpcm_ima_qt` / `adpcm_ima_wav` / `adpcm_ms`, `ape`, `wavpack`, `dsd_*`, `cook`, `sipr`, `real_144`,
+> `real_288`; demuxers `mxf`, `aiff`, `caf`, `ape`, `wv`, `dsf`, `iff` (DSDIFF), `rm`, `vvc`. `mpeg1video`, `prores`, `h263` and
+> `pcm_bluray` were already in (pulled in by other decoders' dependencies). Cost per slice, release binaries: libavcodec
+> +1.3 MB (iOS / tvOS arm64: 5.5 -> 6.8 MB, of which VVC with its bitstream reader is about 0.5 MB), libavformat +0.13 MB
+> (1.08 -> 1.22 MB). `BUILD_JOBS=6 ./build.sh` limits make / ninja parallelism.
 
 <h1 align="center">FFmpegBuild</h1>
 
@@ -12,9 +22,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/superuser404notfound/FFmpegBuild/releases/latest"><img src="https://img.shields.io/github/v/release/superuser404notfound/FFmpegBuild?label=release&color=blue"></a>
-  <a href="https://swiftpackageindex.com/superuser404notfound/FFmpegBuild"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fsuperuser404notfound%2FFFmpegBuild%2Fbadge%3Ftype%3Dswift-versions"></a>
-  <a href="https://swiftpackageindex.com/superuser404notfound/FFmpegBuild"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fsuperuser404notfound%2FFFmpegBuild%2Fbadge%3Ftype%3Dplatforms"></a>
+  <a href="https://github.com/isToThyMoon/FFmpegBuild/releases/latest"><img src="https://img.shields.io/github/v/release/isToThyMoon/FFmpegBuild?label=release&color=blue"></a>
+  <a href="https://swiftpackageindex.com/isToThyMoon/FFmpegBuild"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FisToThyMoon%2FFFmpegBuild%2Fbadge%3Ftype%3Dswift-versions"></a>
+  <a href="https://swiftpackageindex.com/isToThyMoon/FFmpegBuild"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FisToThyMoon%2FFFmpegBuild%2Fbadge%3Ftype%3Dplatforms"></a>
   <img src="https://img.shields.io/badge/FFmpeg-8.1-brightgreen">
   <img src="https://img.shields.io/badge/dav1d-1.5.4-blue">
   <img src="https://img.shields.io/badge/license-LGPL--2.1-lightgrey">
@@ -74,16 +84,16 @@ Output lands in `Sources/` as xcframeworks, ready to consume via Swift Package M
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/superuser404notfound/FFmpegBuild", from: "3.6.0")
+    .package(url: "https://github.com/isToThyMoon/FFmpegBuild", exact: "3.6.0-filmio.2")
 ]
 
 // Target:
-.product(name: "AetherFFmpegBuild", package: "FFmpegBuild")
+.product(name: "FilmioFFmpeg", package: "FFmpegBuild")
 ```
 
-Pin `branch: "main"` instead of a version if you want to track the latest rebuilds (that is how [AetherEngine](https://github.com/superuser404notfound/AetherEngine) consumes it).
+Pin `branch: "main"` instead of a version if you want to track the latest rebuilds (that is how the original consumer consumes it).
 
-Then import the modules you need: `AetherLibavformat`, `AetherLibavcodec`, `AetherLibavutil`, `AetherLibswresample`, `AetherLibswscale`, `AetherLibavfilter`, `AetherLibdav1d`. (`AetherLibzimg` is a link-only backend for `zscale`, and `AetherLibzvbi` a link-only backend for the teletext decoder; you don't import either directly.) The umbrella `AetherFFmpegBuild` product links all of them plus the system frameworks (AudioToolbox, CoreMedia, CoreVideo, VideoToolbox) in one shot.
+Then import the modules you need: `FilmioLibavformat`, `FilmioLibavcodec`, `FilmioLibavutil`, `FilmioLibswresample`, `FilmioLibswscale`, `FilmioLibavfilter`, `FilmioLibdav1d`. (`FilmioLibzimg` is a link-only backend for `zscale`, and `FilmioLibzvbi` a link-only backend for the teletext decoder; you don't import either directly.) The umbrella `FilmioFFmpeg` product links all of them plus the system frameworks (AudioToolbox, CoreMedia, CoreVideo, VideoToolbox) in one shot.
 
 The FFmpeg API itself is unchanged: `avformat_open_input`, `avcodec_send_packet` and the rest keep their names. Only the module and framework names carry the prefix.
 
@@ -98,15 +108,15 @@ appear in package 'ffmpegbuild' and 'ffmpegkit'
 
 `moduleAliases` does not reach this: it renames Swift source targets, not binary ones. Two things had to change, and 3.0.0 changes both:
 
-- **SwiftPM target and product names** are unique across the whole dependency graph. `AetherLibavcodec` no longer meets `Libavcodec`.
-- **Framework bundle and install names**, because two `Libavcodec.framework` bundles cannot both live at `App.app/Frameworks/` under one `@rpath/Libavcodec.framework/Libavcodec`. The shipped install name is now `@rpath/AetherLibavcodec.framework/AetherLibavcodec`.
+- **SwiftPM target and product names** are unique across the whole dependency graph. `FilmioLibavcodec` no longer meets `Libavcodec`.
+- **Framework bundle and install names**, because two `Libavcodec.framework` bundles cannot both live at `App.app/Frameworks/` under one `@rpath/Libavcodec.framework/Libavcodec`. The shipped install name is now `@rpath/FilmioLibavcodec.framework/FilmioLibavcodec`.
 
-What the rename does **not** change is the C symbols: `_avcodec_open2` is still `_avcodec_open2` in every FFmpeg on earth. Distinct dynamic frameworks are enough on their own, because the two-level namespace records per reference which dylib it came from. A **static** FFmpeg in the same executable is the case that still bites: its symbols become definitions inside the executable and win for every object linked beside them. The fix there is to link the code that calls this build into its own dynamic framework, so its `_av*` bind at that framework's link. AetherEngine documents the recipe in [docs/api.md](https://github.com/superuser404notfound/AetherEngine/blob/main/docs/api.md#one-ffmpeg-and-it-has-to-be-the-engines).
+What the rename does **not** change is the C symbols: `_avcodec_open2` is still `_avcodec_open2` in every FFmpeg on earth. Distinct dynamic frameworks are enough on their own, because the two-level namespace records per reference which dylib it came from. A **static** FFmpeg in the same executable is the case that still bites: its symbols become definitions inside the executable and win for every object linked beside them. The fix there is to link the code that calls this build into its own dynamic framework, so its `_av*` bind at that framework's link. The consumer of this build documents the recipe in its API notes.
 
 ## Decoder support
 
 - **Video (hardware via VideoToolbox)**: H.264, HEVC up to Main10 (HDR10 / DV Profile 8)
-- **Video (software)**: AV1 (dav1d), VP9, VP8, MPEG-2, MPEG-4, VC-1, QuickTime RLE (qtrle), and the legacy Microsoft tail: MS-MPEG4 v1 / v2 / v3 (DivX 3.x in pre-2005 AVI rips), WMV1 / WMV2, WMV3 (WMV9). A native `.wmv` / `.asf` plays whole: the `asf` demuxer and every WMA decoder ship with it, because a decoder left out is a file with silent audio (the consumer's bridge finds no decoder for the id and the session falls to video-only). The Flash tail is here for the same reason: FLV1 (Sorenson Spark) and On2 VP6 / VP6F / VP6A with the era's audio, so a legacy `.flv` plays whole where before only H.264-in-FLV did. Flash Screen Video stays out, it needs zlib
+- **Video (software)**: AV1 (dav1d), VP9, VP8, MPEG-2, MPEG-4, VC-1, QuickTime RLE (qtrle), and the legacy Microsoft tail: MS-MPEG4 v1 / v2 / v3 (DivX 3.x in pre-2005 AVI rips), WMV1 / WMV2, WMV3 (WMV9). A native `.wmv` / `.asf` plays whole: the `asf` demuxer and every WMA decoder ship with it, because a decoder left out is a file with silent audio (the consumer's bridge finds no decoder for the id and the session falls to video-only). The Flash tail is here for the same reason: FLV1 (Sorenson Spark) and On2 VP6 / VP6F / VP6A with the era's audio, so a legacy `.flv` plays whole where before only H.264-in-FLV did. Flash Screen Video stays out of the list (not asked for; zlib is on since 3.6.0-filmio.2, so it could be added)
 - **Audio**: AAC, AC3, EAC3 (incl. JOC detection for Atmos), FLAC, MP2, MP3, Opus, Vorbis, TrueHD, MLP, DTS, ALAC, PCM (incl. Blu-ray LPCM via `pcm_bluray`, G.711 A-law / mu-law, big-endian and unsigned 8-bit), WMA Standard / Pro / Lossless / Voice, Nellymoser Asao, ADPCM-SWF, Speex
 - **Subtitles**: SRT, ASS, SSA, WebVTT, PGS, DVB subtitle, DVB teletext (via libzvbi), DVD
 
@@ -140,12 +150,12 @@ Symbols and binaries are a pair per build. A dSYM from one release symbolicates 
 `build.sh` applies seven small patches to the FFmpeg source after checkout (each documented in place):
 
 - **`patch_ffmpeg`**: balances autoreleased Metal objects in `vf_yadif_videotoolbox.m` (upstream over-release crashes host apps whose GCD queues pop their last-resort autorelease pool at session teardown).
-- **`patch_ffmpeg_pgssub`**: `pgssubdec.c` emits an empty (clearing) subtitle instead of dropping a display set whose palette is missing, outside `AV_EF_EXPLODE`. PGS carries no end time, a cue is closed by the start of its successor, so dropping a damaged set also dropped the successor that closes the previous cue, and the predecessor overstayed its authored end until the next intact set arrived (AetherEngine issue 142). The pts is already set and no rect is allocated at that point, so this is the same clearing form the `object_count == 0` path returns. The first version of this patch instead kept the palette/object cache across an Epoch-Continue PCS; that was withdrawn because retained objects occupy the fixed `MAX_EPOCH_OBJECTS` slots and made a conformant connection set fail with "Too many objects in epoch". Proposed upstream as FFmpeg PR 23851.
+- **`patch_ffmpeg_pgssub`**: `pgssubdec.c` emits an empty (clearing) subtitle instead of dropping a display set whose palette is missing, outside `AV_EF_EXPLODE`. PGS carries no end time, a cue is closed by the start of its successor, so dropping a damaged set also dropped the successor that closes the previous cue, and the predecessor overstayed its authored end until the next intact set arrived (downstream issue 142). The pts is already set and no rect is allocated at that point, so this is the same clearing form the `object_count == 0` path returns. The first version of this patch instead kept the palette/object cache across an Epoch-Continue PCS; that was withdrawn because retained objects occupy the fixed `MAX_EPOCH_OBJECTS` slots and made a conformant connection set fail with "Too many objects in epoch". Proposed upstream as FFmpeg PR 23851.
 - **`patch_ffmpeg_visionos`**: `videotoolbox.c` skips `kCVPixelBufferOpenGLESCompatibilityKey` on visionOS, where the key is unavailable because the platform has neither OpenGL ES nor OpenGL. Upstream selects it on `TARGET_OS_IPHONE`, which is 1 on visionOS (`TARGET_OS_IOS` is the one that is 0), so the hardware-decode path does not compile for `xros` without this. Nothing is lost: the attribute only asks CoreVideo to make the buffer bindable as a GL texture, and on visionOS every consumer is Metal, which the IOSurface properties set alongside it already cover.
-- **`patch_ffmpeg_vc1_parser`**: `vc1_parser.c` seeds its parse context from `avctx->extradata` the way `vc1_decode_init` does. libavformat closes and reopens the parser on every reposition, so without this a seek lands on a zeroed `VC1Context` and the entry point BDU that follows is read at the wrong bit offset: `hrd_full[]` precedes `coded_size_flag` only when the sequence header set `hrd_param_flag`, which a zeroed context cannot know. The bit taken for `coded_size_flag` is then the leaky bucket fullness at that entry point, so a bucket below half falls back to a zero picture size ("Picture size 0x0 is invalid") and one above half takes a coded size out of the following payload, silently. Affects any VC-1 track whose encoder leaves the sequence header to the container (AetherEngine issue 490). Proposed upstream as FFmpeg PR 24458.
-- **`patch_ffmpeg_dav1_tag`**: `isom_tags.c` and `movenc.c` learn the `dav1` sample entry, the AV1 variant of `av01` that MP4RA registers for Dolby Vision. Apple's HLS authoring spec requires it for Dolby Vision Profile 10.0, the AV1 analogue of HEVC Profile 5: an IPT-PQ-c2 signal with no compatible base layer, so `av01` is not an alternative there. FFmpeg carries the tag in neither direction, and both tables matter: without the `isom_tags.c` entry a `dav1` MP4 probes as "unknown codec", and without the `codec_mp4_tags` entry in `movenc.c` `validate_codec_tag()` rejects the requested tag and `avformat_write_header` fails with EINVAL, so a remux never starts. `dvh1` already sits in that second table, which is why the HEVC Profile 5 route works. The cross-compatible profiles (10.1 / 10.4) ride an `av01` sample entry with SUPPLEMENTAL-CODECS and are unaffected (AetherEngine issue 547).
-- **`patch_ffmpeg_mpegts_mpeg1_probe`**: `mpegts.c` probes the payload of a PID labelled 0x03 (MPEG-1 audio), as it already does for 0x04 (MPEG-2 audio) and 0x0f (AAC). Upstream takes 0x03 at its word, so a restreamer that labels a DTS PID that way opens it as mp3, every packet fails with "Header missing", and the track never produces a frame (AetherEngine issue 641). A genuine MP2 or MP3 PID settles on its first PES packet, and a probe that finds nothing better keeps the PMT's codec. The same issue is why the raw `dts`, `truehd` and `loas` demuxers are enabled: the MPEG-TS content probe confirms a codec by running the raw demuxers' probes over the payload, so a codec without its raw demuxer in the build could never be confirmed, and the lenient mp3 probe named the track instead, whatever the label.
-- **`patch_ffmpeg_matroska_tts`**: `matroskadec.c` logs a warning when a Matroska track carries a `TrackTimestampScale` other than 1.0. Timestamp behavior stays exactly as upstream implements it, which is what RFC 9559 specifies (block timestamps and BlockDuration are Track Ticks). The element is deprecated (maxver 3) and many readers ignore it, so a file carrying it may have been authored against such readers and mistime silently; the warning surfaces that condition (AetherEngine issue 145). Until 2.1.x this patch clamped TTS to 1.0; the clamp rested on a wrong reading of the RFC and was dropped after upstream review (FFmpeg PR 23852).
+- **`patch_ffmpeg_vc1_parser`**: `vc1_parser.c` seeds its parse context from `avctx->extradata` the way `vc1_decode_init` does. libavformat closes and reopens the parser on every reposition, so without this a seek lands on a zeroed `VC1Context` and the entry point BDU that follows is read at the wrong bit offset: `hrd_full[]` precedes `coded_size_flag` only when the sequence header set `hrd_param_flag`, which a zeroed context cannot know. The bit taken for `coded_size_flag` is then the leaky bucket fullness at that entry point, so a bucket below half falls back to a zero picture size ("Picture size 0x0 is invalid") and one above half takes a coded size out of the following payload, silently. Affects any VC-1 track whose encoder leaves the sequence header to the container (downstream issue 490). Proposed upstream as FFmpeg PR 24458.
+- **`patch_ffmpeg_dav1_tag`**: `isom_tags.c` and `movenc.c` learn the `dav1` sample entry, the AV1 variant of `av01` that MP4RA registers for Dolby Vision. Apple's HLS authoring spec requires it for Dolby Vision Profile 10.0, the AV1 analogue of HEVC Profile 5: an IPT-PQ-c2 signal with no compatible base layer, so `av01` is not an alternative there. FFmpeg carries the tag in neither direction, and both tables matter: without the `isom_tags.c` entry a `dav1` MP4 probes as "unknown codec", and without the `codec_mp4_tags` entry in `movenc.c` `validate_codec_tag()` rejects the requested tag and `avformat_write_header` fails with EINVAL, so a remux never starts. `dvh1` already sits in that second table, which is why the HEVC Profile 5 route works. The cross-compatible profiles (10.1 / 10.4) ride an `av01` sample entry with SUPPLEMENTAL-CODECS and are unaffected (downstream issue 547).
+- **`patch_ffmpeg_mpegts_mpeg1_probe`**: `mpegts.c` probes the payload of a PID labelled 0x03 (MPEG-1 audio), as it already does for 0x04 (MPEG-2 audio) and 0x0f (AAC). Upstream takes 0x03 at its word, so a restreamer that labels a DTS PID that way opens it as mp3, every packet fails with "Header missing", and the track never produces a frame (downstream issue 641). A genuine MP2 or MP3 PID settles on its first PES packet, and a probe that finds nothing better keeps the PMT's codec. The same issue is why the raw `dts`, `truehd` and `loas` demuxers are enabled: the MPEG-TS content probe confirms a codec by running the raw demuxers' probes over the payload, so a codec without its raw demuxer in the build could never be confirmed, and the lenient mp3 probe named the track instead, whatever the label.
+- **`patch_ffmpeg_matroska_tts`**: `matroskadec.c` logs a warning when a Matroska track carries a `TrackTimestampScale` other than 1.0. Timestamp behavior stays exactly as upstream implements it, which is what RFC 9559 specifies (block timestamps and BlockDuration are Track Ticks). The element is deprecated (maxver 3) and many readers ignore it, so a file carrying it may have been authored against such readers and mistime silently; the warning surfaces that condition (downstream issue 145). Until 2.1.x this patch clamped TTS to 1.0; the clamp rested on a wrong reading of the RFC and was dropped after upstream review (FFmpeg PR 23852).
 
 ## Keeping the pins current
 
@@ -189,4 +199,3 @@ If you build the `static` variant instead, those steps are not sufficient: LGPL 
 
 ---
 
-<p align="center"><sub>Used by <a href="https://github.com/superuser404notfound/AetherEngine">AetherEngine</a>.</sub></p>
